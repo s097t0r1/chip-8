@@ -13,5 +13,5 @@ fn main() {
 
     let rom = ROMReader::read(rom_path);
 
-    let chip_8 = Chip8::new(&rom);
+   let chip_8 = Chip8::new(&rom);
 }

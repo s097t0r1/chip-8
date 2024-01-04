@@ -1,8 +1,8 @@
 #[derive(Default)]
 pub struct Registers {
-    V: [u8; 16],
-    DT: u8,
-    ST: u8,
-    I: u16,
-    PC: u16,
+    pub V: [u8; 16],
+    pub DT: u8,
+    pub ST: u8,
+    pub I: u16,
+    pub PC: u16,
 }

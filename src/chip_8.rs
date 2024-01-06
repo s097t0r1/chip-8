@@ -7,6 +7,7 @@ mod stack;
 
 pub struct Chip8 {
     ram: [u8; 4096],
+    display: [[bool; 64]; 32],
     regs: Registers,
     stack: Stack,
     pub is_halt: bool,
@@ -25,30 +26,38 @@ impl Chip8 {
             this.ram[i + offset] = dbg!(*value);
         }
 
-        this.regs.PC = 512;
+        this.regs.PC = 0x200;
 
         this
     }
 
-    pub fn emulate_cycle(&mut self) {
+    pub fn tick(&mut self) -> Command {
         let instruction: u16 = ((self.ram[usize::from(self.regs.PC)] as u16) << 8) | self.ram[usize::from(self.regs.PC + 1)] as u16;
-        let nnn: u16= instruction & 0x0FFF;
+        let nnn: u16 = instruction & 0x0FFF;
         let n: u8 = instruction as u8 & 0x0F;
         let x: u8 = (instruction >> 8) as u8 & 0x0F;
-        let y: u8 = instruction as u8 & 0xF0;
+        let y: u8 = (instruction as u8 >> 4) & 0x0F;
         let kk: u8 = instruction as u8;
 
         match instruction & 0xF000 {
             0x0000 => {
                 match instruction & 0x00FF {
                     // CLS
-                    0x00E0 => {}
+                    0x00E0 => {
+                        for i in 0..self.display.len() - 1 {
+                            for j in 0..self.display[i].len() - 1 {
+                                self.display[i][j] = false;
+                            }
+                        }
+                    }
                     // RET
                     0x00EE => {
                         let address: u16 = self.stack.pop();
                         self.regs.PC = address;
                     }
-                    _ =>  panic!("Unexceptected instructions {}", instruction),
+                    _ =>  {
+                        self.is_halt = true;
+                    }
                 }
             }
             // JP addr
@@ -75,7 +84,7 @@ impl Chip8 {
             0x5000 => {
                 if self.regs.V[usize::from(x)] == self.regs.V[usize::from(y)] {
                     self.regs.PC += 2;
-                }
+                }             
             }
             // LD Vx, byte
             0x6000 => { 
@@ -83,7 +92,7 @@ impl Chip8 {
             }
             // ADD Vx, byte
             0x7000 => { 
-                self.regs.V[usize::from(x)] = self.regs.V[usize::from(x)] + kk; 
+                self.regs.V[usize::from(x)] = self.regs.V[usize::from(x)].wrapping_add(kk); 
             }
             0x8000 => match instruction & 0x000F {
                 // LD Vx, Vy
@@ -96,25 +105,25 @@ impl Chip8 {
                 0x0003 => self.regs.V[usize::from(x)] ^= self.regs.V[usize::from(y)],
                 // ADD Vx, Vy
                 0x0004 => {
-                    let x: u8 = self.regs.V[usize::from(x)];
+                    let x_value: u8 = self.regs.V[usize::from(x)];
 
-                    self.regs.V[usize::from(x)] = x.wrapping_add(self.regs.V[usize::from(y)]);
+                    self.regs.V[usize::from(x)] = x_value.wrapping_add(self.regs.V[usize::from(y)]);
                     self.regs.V[0xF] = if x < self.regs.V[usize::from(x)] { 1 } else { 0 };
                 }
                 // SUB Vx, Vy
                 0x0005 => {
-                    let x: u8 = self.regs.V[usize::from(x)];
+                    let x_value: u8 = self.regs.V[usize::from(x)];
 
                     self.regs.V[usize::from(x)] = x.wrapping_sub(self.regs.V[usize::from(y)]);
-                    self.regs.V[0xF] = if x > self.regs.V[usize::from(x)] { 1 } else { 0 };
+                    self.regs.V[0xF] = if x_value > self.regs.V[usize::from(x)] { 1 } else { 0 };
                 }
                 // SHR Vx {, Vy}
                 0x0006 => {
-                    let x: u8 = self.regs.V[usize::from(x)].wrapping_shr(1);
+                    let x_value: u8 = self.regs.V[usize::from(x)].wrapping_shr(1);
                     let overflow_flag: u8 = self.regs.V[usize::from(x)] & 0x1;
 
                     self.regs.V[0xF] = overflow_flag;
-                    self.regs.V[usize::from(x)] = x;
+                    self.regs.V[usize::from(x)] = x_value;
                 }
                 // SUBN Vx, Vy
                 0x0007 => {
@@ -125,11 +134,11 @@ impl Chip8 {
                 }
                 // SHL Vx {, Vy}
                 0x000E => {
-                    let x: u8 = self.regs.V[usize::from(x)].wrapping_shl(1);
+                    let x_value: u8 = self.regs.V[usize::from(x)].wrapping_shl(1);
                     let overflow_flag: u8 = self.regs.V[usize::from(x)] & 0x80;
 
                     self.regs.V[0xF] = overflow_flag;
-                    self.regs.V[usize::from(x)] = x;
+                    self.regs.V[usize::from(x)] = x_value;
                 }
                 _ => panic!("Unexpected instruction {}", instruction),
             }
@@ -152,7 +161,33 @@ impl Chip8 {
             }
             // DRW Vx, Vy, nibble
             0xD000 => {
-                
+                let start_x = self.regs.V[usize::from(x)];
+                let start_y = self.regs.V[usize::from(y)];
+                let mut is_collision_detected = false;
+
+                for y_offset in 0..n {
+                    let y = if start_y + y_offset >= DISPLAY_HEIGHT { start_y + y_offset - DISPLAY_HEIGHT } else { start_y + y_offset };
+                    let sprite_row = self.ram[usize::from(self.regs.I + (u16::from(y_offset)))];
+
+                    for x_offset in 0..SPRITE_WIDTH {
+                        let x = if start_x + x_offset >= DISPLAY_WIDTH { start_x + x_offset - DISPLAY_WIDTH } else { start_x + x_offset };
+
+                        let is_sprite_pixel_colored = ((sprite_row).wrapping_shr((8 - x_offset - 1) as u32) & 1) > 0;
+                        let is_display_pixel_colored = self.display[usize::from(y)][usize::from(x)];
+
+                        let is_draw_pixel = is_display_pixel_colored ^ is_sprite_pixel_colored;
+                        is_collision_detected = is_display_pixel_colored & is_sprite_pixel_colored;
+
+                        self.display[usize::from(y)][usize::from(x)] = is_draw_pixel;
+                    }
+                }
+
+                Chip8::debug_drawing_screen(&self.display);
+
+                self.regs.V[0xF] = is_collision_detected.into();
+                self.regs.PC += 2;
+
+                return Command::Draw(self.display);
             }
             0xE000 => match instruction & 0x00FF {
                 // SKP Vx
@@ -209,12 +244,26 @@ impl Chip8 {
             _ => panic!("Unexceptected instructions {}", instruction)
         }
 
-        self.regs.PC += 2
+        self.regs.PC += 2;
+
+        Command::Nothing
+    }
+
+    fn debug_drawing_screen(screen: &[[bool; 64]; 32]) {
+        for row in screen.iter() {
+            for pixel in row.iter() {
+                if *pixel { print!("1") } else { print!("0") }
+            }
+            println!();
+        }
+
+        println!("\n");
     }
 
     fn new_internal() -> Self {
         Chip8 {
             ram: [0; 4096],
+            display: [[false; 64]; 32],
             regs: Registers::default(),
             stack: Stack::default(),
             is_halt: false,
@@ -226,6 +275,12 @@ impl Chip8 {
             ram[i] = *byte
         }
     }
+}
+
+pub enum Command {
+    Nothing,
+    Draw([[bool; 64]; 32]),
+    Beep,
 }
 
 const SPRITES: [u8; 80] = [
@@ -246,3 +301,8 @@ const SPRITES: [u8; 80] = [
         0xF0, 0x80, 0xF0, 0x80, 0xF0,
         0xF0, 0x80, 0xF0, 0x80, 0x80,
 ];
+
+const DISPLAY_WIDTH: u8 = 64;
+const DISPLAY_HEIGHT: u8 = 32;
+
+const SPRITE_WIDTH: u8 = 8;

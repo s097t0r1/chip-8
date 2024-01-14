@@ -12,8 +12,8 @@ impl Stack {
     }
 
     pub fn pop(&mut self) -> u16 {
-        let address = self.S[usize::from(self.SP)];
         self.SP -= 1;
+        let address = self.S[usize::from(self.SP)];
 
         address
     }

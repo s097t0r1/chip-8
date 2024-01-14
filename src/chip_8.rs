@@ -10,6 +10,7 @@ pub struct Chip8 {
     display: [[bool; 64]; 32],
     regs: Registers,
     stack: Stack,
+    keyboard: [bool; 16],
     pub is_halt: bool,
 }
 
@@ -23,12 +24,16 @@ impl Chip8 {
         // Initialize RAM with ROM
         Chip8::load_sprites(&mut this.ram);
         for (i, value) in rom.iter().enumerate() {
-            this.ram[i + offset] = dbg!(*value);
+            this.ram[i + offset] = *value;
         }
 
         this.regs.PC = 0x200;
 
         this
+    }
+
+    pub fn on_key(&mut self, index: usize, is_pressed: bool) {
+        self.keyboard[index] = is_pressed;
     }
 
     pub fn tick(&mut self) -> Command {
@@ -38,6 +43,8 @@ impl Chip8 {
         let x: u8 = (instruction >> 8) as u8 & 0x0F;
         let y: u8 = (instruction as u8 >> 4) & 0x0F;
         let kk: u8 = instruction as u8;
+
+        println!("{:#06x}", instruction);
 
         match instruction & 0xF000 {
             0x0000 => {
@@ -63,10 +70,13 @@ impl Chip8 {
             // JP addr
             0x1000 => {
                 self.regs.PC = nnn;
+                return Command::Nothing;
             },
             // CALL addr
             0x2000 => {
                 self.stack.push(self.regs.PC);
+                self.regs.PC = nnn;
+                return Command::Nothing;
             },
             // SE Vx, byte
             0x3000 => {
@@ -114,7 +124,7 @@ impl Chip8 {
                 0x0005 => {
                     let x_value: u8 = self.regs.V[usize::from(x)];
 
-                    self.regs.V[usize::from(x)] = x.wrapping_sub(self.regs.V[usize::from(y)]);
+                    self.regs.V[usize::from(x)] = x_value.wrapping_sub(self.regs.V[usize::from(y)]);
                     self.regs.V[0xF] = if x_value > self.regs.V[usize::from(x)] { 1 } else { 0 };
                 }
                 // SHR Vx {, Vy}
@@ -129,7 +139,7 @@ impl Chip8 {
                 0x0007 => {
                     let not_borrow: u8 = (self.regs.V[usize::from(y)] > self.regs.V[usize::from(x)]) as u8;
 
-                    self.regs.V[usize::from(x)] = self.regs.V[usize::from(y)] - self.regs.V[usize::from(x)];
+                    self.regs.V[usize::from(x)] = self.regs.V[usize::from(y)].wrapping_sub(self.regs.V[usize::from(x)]);
                     self.regs.V[0xF] = not_borrow;
                 }
                 // SHL Vx {, Vy}
@@ -151,9 +161,14 @@ impl Chip8 {
                 }
             }
             // Annn - LD I, addr
-            0xA000 => self.regs.I = nnn,
+            0xA000 => {
+                self.regs.I = nnn 
+            }
             // Bnnn - JP V0, addr
-            0xB000 => self.regs.PC += nnn + (self.regs.V[0] as u16),
+            0xB000 => {
+                self.regs.PC += nnn + (self.regs.V[0] as u16);
+                return Command::Nothing;
+            }
             // RND Vx, byte
             0xC000 => {
                 let mut rand = rand::thread_rng();
@@ -182,7 +197,6 @@ impl Chip8 {
                     }
                 }
 
-                Chip8::debug_drawing_screen(&self.display);
 
                 self.regs.V[0xF] = is_collision_detected.into();
                 self.regs.PC += 2;
@@ -191,16 +205,31 @@ impl Chip8 {
             }
             0xE000 => match instruction & 0x00FF {
                 // SKP Vx
-                0x9E => panic!("Unexpected instructions {}", instruction),
+                0x9E => {
+                    if self.keyboard[usize::from(self.regs.V[usize::from(x)])] {
+                        self.regs.PC += 2;
+                    }
+                }
                 // SKNP Vx
-                0xA1 => panic!("Unexpected instructions {}", instruction),
+                0xA1 => {
+                    if !self.keyboard[usize::from(self.regs.V[usize::from(x)])] {
+                        self.regs.PC += 2;
+                    }
+                }
                 _ => panic!("Unexpected instructions {}", instruction),
             }
             0xF000 => match instruction & 0x00FF {
                 // LD Vx, DT
                 0x07 => self.regs.V[usize::from(x)] = self.regs.DT,
                 // LD Vx, K
-                0x0A => {},
+                0x0A => {
+                    if self.keyboard.iter().all(|&x| x == false) {
+                        return Command::Nothing;
+                    } else {
+                        let key_pressed = self.keyboard.iter().position(|x| *x == true);
+                        self.regs.V[usize::from(x)] = u8::try_from(key_pressed.unwrap()).unwrap();
+                    }
+                },
                 // LD DT, Vx
                 0x15 => self.regs.DT = self.regs.V[usize::from(x)],
                 // LD ST, Vx
@@ -229,14 +258,14 @@ impl Chip8 {
                 },
                 // LD [I], Vx
                 0x55 => {
-                    for offset in 0..16 {
-                        self.ram[usize::from(self.regs.I + offset)] = self.regs.V[usize::from(offset)];
+                    for offset in 0..(x + 1) {
+                        self.ram[usize::from(self.regs.I + u16::from(offset))] = self.regs.V[usize::from(offset)];
                     }
                 }
                 // LD Vx, [I]
                 0x65 => {
-                    for offset in 0..16 {
-                        self.regs.V[usize::from(offset)] = self.ram[usize::from(self.regs.I + offset)];
+                    for offset in 0..(x + 1) {
+                        self.regs.V[usize::from(offset)] = self.ram[usize::from(self.regs.I + u16::from(offset))];
                     }
                 }
                 _ => panic!("Unexceptected instructions {}", instruction)
@@ -249,23 +278,13 @@ impl Chip8 {
         Command::Nothing
     }
 
-    fn debug_drawing_screen(screen: &[[bool; 64]; 32]) {
-        for row in screen.iter() {
-            for pixel in row.iter() {
-                if *pixel { print!("1") } else { print!("0") }
-            }
-            println!();
-        }
-
-        println!("\n");
-    }
-
     fn new_internal() -> Self {
         Chip8 {
             ram: [0; 4096],
             display: [[false; 64]; 32],
             regs: Registers::default(),
             stack: Stack::default(),
+            keyboard: [false; 16],
             is_halt: false,
         }
     }

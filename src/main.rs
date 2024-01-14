@@ -5,29 +5,12 @@ use chip_8::{Chip8, Command};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::Point;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use std::time::Duration;
 
 mod rom_reader;
 mod chip_8;
-
-// fn main() {
-//     let args: Vec<String> = env::args().collect();
-
-//     let rom_path = args.get(1).expect("ERROR: invalid ROM file path");
-
-//     let rom = ROMReader::read(rom_path);
-
-//    let mut chip_8 = Chip8::new(&rom);
-
-   
-//    loop {
-//        chip_8.emulate_cycle();
-//        if chip_8.is_halt { break; }
-//    }
-// }
 
 pub fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
@@ -43,13 +26,61 @@ pub fn main() -> Result<(), String> {
     let mut event_pump = sdl_context.event_pump()?;
 
     'running: loop {
+
         for event in event_pump.poll_iter() {
+            dbg!(&event);
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
+                Event::Quit { .. } => break 'running,
+                Event::KeyDown { keycode, .. } => {
+                    match keycode.unwrap() {
+                        Keycode::Num1 => chip_8.on_key(0x1, true),
+                        Keycode::Num2 => chip_8.on_key(0x2, true),
+                        Keycode::Num3 => chip_8.on_key(0x3, true),
+                        Keycode::Num4 => chip_8.on_key(0xC, true),
+
+                        Keycode::Q => chip_8.on_key(0x4, true),
+                        Keycode::W => chip_8.on_key(0x5, true),
+                        Keycode::E => chip_8.on_key(0x6, true),
+                        Keycode::R => chip_8.on_key(0xD, true),
+
+                        Keycode::A => chip_8.on_key(0x7, true),
+                        Keycode::S => chip_8.on_key(0x8, true),
+                        Keycode::D => chip_8.on_key(0x9, true),
+                        Keycode::F => chip_8.on_key(0xE, true),
+
+                        Keycode::Z => chip_8.on_key(0xA, true),
+                        Keycode::X => chip_8.on_key(0x0, true),
+                        Keycode::C => chip_8.on_key(0xB, true),
+                        Keycode::V => chip_8.on_key(0xF, true),
+
+                        _ => {}
+                    }
+                }
+                Event::KeyUp { keycode , .. } => {
+                    match keycode.unwrap() {
+                        Keycode::Num1 => chip_8.on_key(0x1, false),
+                        Keycode::Num2 => chip_8.on_key(0x2, false),
+                        Keycode::Num3 => chip_8.on_key(0x3, false),
+                        Keycode::Num4 => chip_8.on_key(0xC, false),
+
+                        Keycode::Q => chip_8.on_key(0x4, false),
+                        Keycode::W => chip_8.on_key(0x5, false),
+                        Keycode::E => chip_8.on_key(0x6, false),
+                        Keycode::R => chip_8.on_key(0xD, false),
+
+                        Keycode::A => chip_8.on_key(0x7, false),
+                        Keycode::S => chip_8.on_key(0x8, false),
+                        Keycode::D => chip_8.on_key(0x9, false),
+                        Keycode::F => chip_8.on_key(0xE, false),
+
+                        Keycode::Z => chip_8.on_key(0xA, false),
+                        Keycode::X => chip_8.on_key(0x0, false),
+                        Keycode::C => chip_8.on_key(0xB, false),
+                        Keycode::V => chip_8.on_key(0xF, false),
+
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         }
@@ -61,8 +92,6 @@ pub fn main() -> Result<(), String> {
             Command::Nothing => { /* noop */ }
             Command::Beep => {}
         }
-
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
     }
 
     Ok(())

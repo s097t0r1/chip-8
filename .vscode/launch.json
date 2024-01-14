@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["ROM/test.ch8"],
+            "args": ["ROM/6.ch8"],
             "cwd": "${workspaceFolder}"
         },
         {
